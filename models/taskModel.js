@@ -13,12 +13,26 @@ const taskSchema = mongoose.Schema(
     },
     description: {
       type: String,
-      required: true,
+      default: '',
     },
-    isCompleted: {
+    completed: {
       type: Boolean,
-      required: true,
       default: false,
+    },
+    category: {
+      type: String,
+      default: 'personal',
+    },
+    priority: {
+      type: String,
+      enum: ['low', 'normal', 'medium', 'high'],
+      default: 'normal',
+    },
+    dueDate: {
+      type: Date,
+    },
+    dueTime: {
+      type: String,
     },
   },
   {
