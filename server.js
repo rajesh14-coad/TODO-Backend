@@ -13,7 +13,10 @@ connectDB();
 const app = express();
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: 'https://aapka-frontend-url.vercel.app', // Yahan apna Vercel URL dalein
+  credentials: true
+}));
 app.use(express.json());
 
 // Routes
