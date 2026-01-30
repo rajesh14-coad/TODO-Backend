@@ -39,6 +39,11 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/goals', goalRoutes);
 
+// Fallback/Alias Routes (Handles requests without /api prefix)
+app.use('/tasks', taskRoutes);
+app.use('/users', userRoutes);
+app.use('/goals', goalRoutes);
+
 // Root Route (Testing ke liye)
 app.get('/', (req, res) => {
   res.send('API is running successfully...');
