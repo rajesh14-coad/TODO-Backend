@@ -48,7 +48,7 @@ const seedData = async () => {
     const adminId = userIds[0];
 
     // 2. Create Team
-    const teamCode = "TEST123";
+    const teamCode = "BETA123";
     let team = await Team.findOne({ code: teamCode });
 
     if (team) {
