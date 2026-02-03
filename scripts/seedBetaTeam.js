@@ -48,12 +48,19 @@ const seedData = async () => {
     const adminId = userIds[0];
 
     // 2. Create Team
-    const teamCode = "BETA123";
-    let team = await Team.findOne({ code: teamCode });
+    const teamCode = "BETA12";
+    // Find by Name first to update existing team (fixing the BETA123 issue)
+    let team = await Team.findOne({ groupName: "Beta Testers" });
+
+    if (!team) {
+      // Fallback: Check if code exists (for other team names)
+      team = await Team.findOne({ code: teamCode });
+    }
 
     if (team) {
-      console.log('ℹ️ Team exists, updating members...');
+      console.log('ℹ️ Team exists, updating members and code...');
       team.groupName = "Beta Testers";
+      team.code = teamCode; // Force update code to BETA12
       team.hostId = adminId;
       team.members = [...new Set([...team.members, ...userIds])];
       await team.save();
