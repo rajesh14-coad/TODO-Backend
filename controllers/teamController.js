@@ -355,6 +355,104 @@ const deleteSharedTask = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Transfer team ownership (Admin only)
+// @route   POST /api/teams/:teamId/transfer-admin
+// @access  Private
+const transferOwnership = asyncHandler(async (req, res) => {
+  const { teamId } = req.params;
+  const { newAdminId } = req.body;
+  const currentAdminId = req.user._id.toString();
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  // Check if current user is admin
+  if (team.hostId !== currentAdminId) {
+    res.status(403);
+    throw new Error('Only current admin can transfer ownership');
+  }
+
+  // Check if new admin is a member
+  if (!team.members.includes(newAdminId)) {
+    res.status(400);
+    throw new Error('New admin must be a member of the team');
+  }
+
+  team.hostId = newAdminId;
+  await team.save();
+
+  res.json({
+    message: 'Team ownership transferred successfully',
+    team: {
+      _id: team._id,
+      groupName: team.groupName,
+      hostId: team.hostId
+    }
+  });
+});
+
+// @desc    Create Test Data (Dev only)
+// @route   POST /api/teams/dev/seed
+// @access  Public
+const createTestTeam = asyncHandler(async (req, res) => {
+  const testGroupName = "Test Squad";
+
+  // 1. Create Dummy Users if not exist
+  const dummyUsersData = [
+    { name: "Alex Developer", username: "alex_dev", email: "alex@test.com", password: "password123" },
+    { name: "Sam Pro", username: "sam_pro", email: "sam@test.com", password: "password123" },
+    { name: "Rita design", username: "rita_99", email: "rita@test.com", password: "password123" },
+    { name: "John Doe", username: "johndoe", email: "john@test.com", password: "password123" },
+    { name: "Jane Smith", username: "janesmith", email: "jane@test.com", password: "password123" }
+  ];
+
+  const dummyUserIds = [];
+
+  for (const userData of dummyUsersData) {
+    let user = await User.findOne({ email: userData.email });
+    if (!user) {
+      user = await User.create(userData);
+    }
+    dummyUserIds.push(user._id.toString());
+  }
+
+  const adminId = dummyUserIds[0]; // Alex is admin
+
+  // 2. Create Team
+  // Check if test team exists
+  let team = await Team.findOne({ groupName: testGroupName, hostId: adminId });
+
+  if (team) {
+    // Reset members
+    team.members = dummyUserIds;
+    await team.save();
+  } else {
+    // Create new
+    let code = generateTeamCode();
+    team = await Team.create({
+      groupName: testGroupName,
+      code,
+      hostId: adminId,
+      members: dummyUserIds,
+      sharedTasks: [
+        { title: "Review Code", category: "Development", assignedTo: dummyUserIds[1] },
+        { title: "Design Logo", category: "Design", assignedTo: dummyUserIds[2] }
+      ]
+    });
+  }
+
+  res.json({
+    message: "Test Team Created Successfully",
+    teamCode: team.code,
+    adminUsername: "alex_dev",
+    members: dummyUserIds.length
+  });
+});
+
 module.exports = {
   createTeam,
   getUserTeams,
@@ -365,4 +463,6 @@ module.exports = {
   addSharedTask,
   updateSharedTask,
   deleteSharedTask,
+  transferOwnership,
+  createTestTeam
 };
