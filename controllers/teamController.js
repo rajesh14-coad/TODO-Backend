@@ -399,15 +399,14 @@ const transferOwnership = asyncHandler(async (req, res) => {
 // @route   POST /api/teams/dev/seed
 // @access  Public
 const createTestTeam = asyncHandler(async (req, res) => {
-  const testGroupName = "Test Squad";
+  const testGroupName = "Beta Testers";
+  const testCode = "BETA12";
 
   // 1. Create Dummy Users if not exist
   const dummyUsersData = [
-    { name: "Alex Developer", username: "alex_dev", email: "alex@test.com", password: "password123" },
-    { name: "Sam Pro", username: "sam_pro", email: "sam@test.com", password: "password123" },
-    { name: "Rita design", username: "rita_99", email: "rita@test.com", password: "password123" },
-    { name: "John Doe", username: "johndoe", email: "john@test.com", password: "password123" },
-    { name: "Jane Smith", username: "janesmith", email: "jane@test.com", password: "password123" }
+    { name: "Rohan Developer", username: "rohan_dev", email: "rohan@test.com", password: "password123" },
+    { name: "Amit Pro", username: "amit_99", email: "amit@test.com", password: "password123" },
+    { name: "Sara Tasker", username: "sara_tasker", email: "sara@test.com", password: "password123" }
   ];
 
   const dummyUserIds = [];
@@ -424,15 +423,18 @@ const createTestTeam = asyncHandler(async (req, res) => {
 
   // 2. Create Team
   // Check if test team exists
-  let team = await Team.findOne({ groupName: testGroupName, hostId: adminId });
+  // Check if test team exists (by name)
+  let team = await Team.findOne({ groupName: testGroupName });
 
   if (team) {
-    // Reset members
+    // Reset members and update code
+    team.hostId = adminId;
     team.members = dummyUserIds;
+    team.code = testCode;
     await team.save();
   } else {
     // Create new
-    let code = generateTeamCode();
+    let code = testCode;
     team = await Team.create({
       groupName: testGroupName,
       code,
@@ -448,7 +450,7 @@ const createTestTeam = asyncHandler(async (req, res) => {
   res.json({
     message: "Test Team Created Successfully",
     teamCode: team.code,
-    adminUsername: "alex_dev",
+    adminUsername: "rohan_dev",
     members: dummyUserIds.length
   });
 });
