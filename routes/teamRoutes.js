@@ -12,20 +12,25 @@ const {
   deleteSharedTask,
   transferOwnership,
   createTestTeam,
+  getTeamMessages,
+  convertMessageToTask,
 } = require('../controllers/teamController');
 const { protect } = require('../middleware/authMiddleware');
 
 // Team routes
-router.route('/').post(protect, createTeam);
+router.route('/').post(protect, createTeam).get(protect, getUserTeams);
 router.route('/user/:userId').get(protect, getUserTeams);
 router.route('/join').post(protect, joinTeam);
 router.route('/:teamId').get(protect, getTeamById);
 router.route('/:teamId').delete(protect, deleteTeam);
 router.route('/:teamId/remove/:memberId').post(protect, removeMember);
 router.route('/:teamId/transfer-admin').post(protect, transferOwnership);
+router.route('/:teamId/messages').get(protect, getTeamMessages);
+router.route('/:teamId/convert-msg-to-task').post(protect, convertMessageToTask);
 
 // Dev/Test Route
-router.route('/dev/seed').post(createTestTeam);
+// Dev/Test Route - DISABLED for Production Integrity
+// router.route('/dev/seed').post(createTestTeam);
 
 // Task routes
 router.route('/:teamId/tasks').post(protect, addSharedTask);

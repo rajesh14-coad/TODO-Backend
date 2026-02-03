@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const Team = require('../models/Team');
 const User = require('../models/userModel');
+const Message = require('../models/Message');
 
 // Generate unique 6-character code
 const generateTeamCode = () => {
@@ -73,12 +74,14 @@ const createTeam = asyncHandler(async (req, res) => {
 });
 
 // @desc    Get user's teams with real-time stats
-// @route   GET /api/teams/user/:userId
+// @route   GET /api/teams or GET /api/teams/user/:userId
 // @access  Private
 const getUserTeams = asyncHandler(async (req, res) => {
-  const { userId } = req.params;
+  // STRICT PRIVACY: Only allow user to view their own teams.
+  const userId = req.user._id;
 
-  const teams = await Team.find({ members: userId });
+  const teams = await Team.find({ members: userId })
+    .populate('members', 'username name profilePicture');
 
   // Return teams with real-time counts
   const teamsWithStats = teams.map(team => ({
@@ -101,39 +104,22 @@ const getUserTeams = asyncHandler(async (req, res) => {
 // @route   GET /api/teams/:teamId
 // @access  Private
 const getTeamById = asyncHandler(async (req, res) => {
-  const team = await Team.findById(req.params.teamId);
+  const team = await Team.findById(req.params.teamId)
+    .populate('members', 'username name profilePicture email');
 
   if (team) {
-    // Fetch details for all members
-    const membersDetails = await User.find({
-      _id: { $in: team.members }
-    }).select('name username email profilePicture');
-
-    // Create a map for O(1) lookup
-    const memberMap = {};
-    membersDetails.forEach(member => {
-      memberMap[member._id.toString()] = member;
-    });
-
-    // Map members array to include full details
-    const membersWithDetails = team.members.map(memberId => {
-      const details = memberMap[memberId.toString()];
-      return details ? {
-        _id: details._id,
-        name: details.name,
-        username: details.username,
-        email: details.email,
-        profilePicture: details.profilePicture
-      } : { _id: memberId, name: 'Unknown User', username: 'unknown' };
-    });
+    // STRICT PRIVACY: Only members can view team details
+    if (!team.members.map(m => m._id.toString()).includes(req.user._id.toString())) {
+      res.status(403);
+      throw new Error('Not authorized to view this team');
+    }
 
     res.json({
       _id: team._id,
       groupName: team.groupName,
       code: team.code,
       hostId: team.hostId,
-      members: membersWithDetails,
-      memberIds: team.members,
+      members: team.members,
       sharedTasks: team.sharedTasks,
       realTimeMemberCount: team.realTimeMemberCount,
       realTimeTaskCount: team.realTimeTaskCount,
@@ -399,14 +385,15 @@ const transferOwnership = asyncHandler(async (req, res) => {
 // @route   POST /api/teams/dev/seed
 // @access  Public
 const createTestTeam = asyncHandler(async (req, res) => {
-  const testGroupName = "Beta Testers";
-  const testCode = "BETA12";
+  const testGroupName = "Test Squad";
 
   // 1. Create Dummy Users if not exist
   const dummyUsersData = [
-    { name: "Rohan Developer", username: "rohan_dev", email: "rohan@test.com", password: "password123" },
-    { name: "Amit Pro", username: "amit_99", email: "amit@test.com", password: "password123" },
-    { name: "Sara Tasker", username: "sara_tasker", email: "sara@test.com", password: "password123" }
+    { name: "Alex Developer", username: "alex_dev", email: "alex@test.com", password: "password123" },
+    { name: "Sam Pro", username: "sam_pro", email: "sam@test.com", password: "password123" },
+    { name: "Rita design", username: "rita_99", email: "rita@test.com", password: "password123" },
+    { name: "John Doe", username: "johndoe", email: "john@test.com", password: "password123" },
+    { name: "Jane Smith", username: "janesmith", email: "jane@test.com", password: "password123" }
   ];
 
   const dummyUserIds = [];
@@ -423,18 +410,15 @@ const createTestTeam = asyncHandler(async (req, res) => {
 
   // 2. Create Team
   // Check if test team exists
-  // Check if test team exists (by name)
-  let team = await Team.findOne({ groupName: testGroupName });
+  let team = await Team.findOne({ groupName: testGroupName, hostId: adminId });
 
   if (team) {
-    // Reset members and update code
-    team.hostId = adminId;
+    // Reset members
     team.members = dummyUserIds;
-    team.code = testCode;
     await team.save();
   } else {
     // Create new
-    let code = testCode;
+    let code = generateTeamCode();
     team = await Team.create({
       groupName: testGroupName,
       code,
@@ -450,10 +434,90 @@ const createTestTeam = asyncHandler(async (req, res) => {
   res.json({
     message: "Test Team Created Successfully",
     teamCode: team.code,
-    adminUsername: "rohan_dev",
+    adminUsername: "alex_dev",
     members: dummyUserIds.length
   });
 });
+
+// @desc    Get team messages
+// @route   GET /api/teams/:teamId/messages
+// @access  Private
+const getTeamMessages = asyncHandler(async (req, res) => {
+  const { teamId } = req.params;
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  // Check if member
+  if (!team.members.includes(req.user._id)) {
+    res.status(403);
+    throw new Error('Not authorized to view messages');
+  }
+
+  const messages = await Message.find({ teamId })
+    .populate('sender', 'username profilePicture')
+    .sort({ timestamp: 1 });
+
+  res.json(messages);
+});
+
+// @desc    Convert message to task
+// @route   POST /api/teams/:teamId/convert-msg-to-task
+// @access  Private
+const convertMessageToTask = asyncHandler(async (req, res) => {
+  const { teamId } = req.params;
+  const { messageId, messageText } = req.body; // Can accept either ID or raw text
+
+  const team = await Team.findById(teamId);
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  let taskTitle = '';
+
+  if (messageId) {
+    const message = await Message.findById(messageId);
+    if (!message) {
+      res.status(404);
+      throw new Error('Message not found');
+    }
+    taskTitle = message.text;
+  } else if (messageText) {
+    taskTitle = messageText;
+  } else {
+    res.status(400);
+    throw new Error('Message content or ID is required');
+  }
+
+  // Basic logic to sanitize/extract title if needed
+  // For now, accept the full text as title
+  const newTask = {
+    title: taskTitle.substring(0, 100), // Limit title length
+    description: `Created from message: "${taskTitle}"`,
+    category: 'General',
+    assignedTo: null,
+    completed: false,
+    completedBy: null,
+    createdAt: new Date()
+  };
+
+  team.sharedTasks.push(newTask);
+  await team.save();
+
+  // Get the newly created task (last one)
+  const createdTask = team.sharedTasks[team.sharedTasks.length - 1];
+
+  res.status(201).json({
+    message: 'Task created from message',
+    task: createdTask
+  });
+});
+
 
 module.exports = {
   createTeam,
@@ -466,5 +530,8 @@ module.exports = {
   updateSharedTask,
   deleteSharedTask,
   transferOwnership,
-  createTestTeam
+  createTestTeam,
+  createTestTeam,
+  getTeamMessages,
+  convertMessageToTask
 };
