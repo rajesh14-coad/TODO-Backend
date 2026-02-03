@@ -19,6 +19,23 @@ const userSchema = mongoose.Schema(
       required: true,
       unique: true,
     },
+    mobile: {
+      type: String,
+      required: function () {
+        // Mobile is required only for regular users, not for guests or Google users
+        return !this.isGuest && !this.googleId;
+      },
+      unique: true,
+      sparse: true, // Allows null values but enforces uniqueness when present
+      validate: {
+        validator: function (v) {
+          // If mobile is provided, it must be exactly 10 digits
+          if (!v) return true; // Allow null/undefined
+          return /^[0-9]{10}$/.test(v);
+        },
+        message: 'Mobile number must be exactly 10 digits'
+      }
+    },
     password: {
       type: String,
     },

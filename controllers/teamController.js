@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const Team = require('../models/Team');
+const User = require('../models/userModel');
 
 // Generate unique 6-character code
 const generateTeamCode = () => {
@@ -15,22 +16,23 @@ const generateTeamCode = () => {
 // @route   POST /api/teams
 // @access  Private
 const createTeam = asyncHandler(async (req, res) => {
-  const { groupName, hostId } = req.body;
+  const { groupName } = req.body;
+  const hostId = req.user._id; // Securely get hostId from authenticated user
 
-  if (!groupName || !hostId) {
+  if (!groupName) {
     res.status(400);
-    throw new Error('Group name and host ID are required');
+    throw new Error('Group name is required');
   }
 
-  // Check if admin already has a team with this name
+  // Check if admin already has a team with this name (Case Insensitive)
   const existingTeam = await Team.findOne({
-    groupName: groupName.trim(),
+    groupName: { $regex: new RegExp(`^${groupName.trim()}$`, 'i') },
     hostId: hostId
   });
 
   if (existingTeam) {
     res.status(400);
-    throw new Error('You already have a team with this name');
+    throw new Error('Team with this name already exists');
   }
 
   // Generate unique code
@@ -42,7 +44,8 @@ const createTeam = asyncHandler(async (req, res) => {
     codeExists = await Team.findOne({ code });
   }
 
-  const team = await Team.create({
+  // Create new team explicitly
+  const team = new Team({
     groupName: groupName.trim(),
     code,
     hostId,
@@ -50,20 +53,22 @@ const createTeam = asyncHandler(async (req, res) => {
     sharedTasks: [],
   });
 
-  if (team) {
+  const savedTeam = await team.save();
+
+  if (savedTeam) {
     res.status(201).json({
-      _id: team._id,
-      groupName: team.groupName,
-      code: team.code,
-      hostId: team.hostId,
-      members: team.members,
-      sharedTasks: team.sharedTasks,
-      realTimeMemberCount: team.realTimeMemberCount,
-      realTimeTaskCount: team.realTimeTaskCount,
+      _id: savedTeam._id,
+      groupName: savedTeam.groupName,
+      code: savedTeam.code,
+      hostId: savedTeam.hostId,
+      members: savedTeam.members,
+      sharedTasks: savedTeam.sharedTasks,
+      realTimeMemberCount: savedTeam.realTimeMemberCount,
+      realTimeTaskCount: savedTeam.realTimeTaskCount,
     });
   } else {
     res.status(400);
-    throw new Error('Invalid team data');
+    throw new Error('Invalid team data - Failed to save');
   }
 });
 
@@ -99,12 +104,36 @@ const getTeamById = asyncHandler(async (req, res) => {
   const team = await Team.findById(req.params.teamId);
 
   if (team) {
+    // Fetch details for all members
+    const membersDetails = await User.find({
+      _id: { $in: team.members }
+    }).select('name username email profilePicture');
+
+    // Create a map for O(1) lookup
+    const memberMap = {};
+    membersDetails.forEach(member => {
+      memberMap[member._id.toString()] = member;
+    });
+
+    // Map members array to include full details
+    const membersWithDetails = team.members.map(memberId => {
+      const details = memberMap[memberId.toString()];
+      return details ? {
+        _id: details._id,
+        name: details.name,
+        username: details.username,
+        email: details.email,
+        profilePicture: details.profilePicture
+      } : { _id: memberId, name: 'Unknown User', username: 'unknown' };
+    });
+
     res.json({
       _id: team._id,
       groupName: team.groupName,
       code: team.code,
       hostId: team.hostId,
-      members: team.members,
+      members: membersWithDetails,
+      memberIds: team.members,
       sharedTasks: team.sharedTasks,
       realTimeMemberCount: team.realTimeMemberCount,
       realTimeTaskCount: team.realTimeTaskCount,

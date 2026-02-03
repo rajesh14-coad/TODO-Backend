@@ -66,8 +66,8 @@ const deleteTask = asyncHandler(async (req, res) => {
   const task = await Task.findById(req.params.id);
 
   if (task && task.user.toString() === req.user.id.toString()) {
-    await task.remove();
-    res.json({ message: 'Task removed' });
+    await task.deleteOne();
+    res.json({ message: 'Task removed', success: true });
   } else {
     res.status(404);
     throw new Error('Task not found');

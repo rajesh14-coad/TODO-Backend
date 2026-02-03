@@ -3,12 +3,38 @@ const User = require('../models/userModel');
 const generateToken = require('../utils/generateToken');
 
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, email, password, username } = req.body;
+  const { name, email, password, username, mobile } = req.body;
 
   // Check if username is provided
   if (!username) {
     res.status(400);
     throw new Error('Username is required');
+  }
+
+  // ✅ Mobile Number Validation
+  if (!mobile) {
+    res.status(400);
+    throw new Error('Mobile number is required');
+  }
+
+  // Check if mobile is exactly 10 digits
+  if (!/^[0-9]{10}$/.test(mobile)) {
+    res.status(400);
+    throw new Error('Mobile number must be exactly 10 digits');
+  }
+
+  // Check for fake mobile numbers
+  const fakePatterns = [
+    /^0{10}$/, // 0000000000
+    /^1{10}$/, // 1111111111
+    /^1234567890$/, // Sequential
+    /^0987654321$/, // Reverse sequential
+    /^(\d)\1{9}$/, // All same digits
+  ];
+
+  if (fakePatterns.some(pattern => pattern.test(mobile))) {
+    res.status(400);
+    throw new Error('Please enter a valid mobile number');
   }
 
   // Check if user already exists by email
@@ -27,10 +53,19 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('Username already taken');
   }
 
+  // Check if mobile already exists
+  const mobileExists = await User.findOne({ mobile });
+
+  if (mobileExists) {
+    res.status(400);
+    throw new Error('Mobile number already registered');
+  }
+
   const user = await User.create({
     name,
     username,
     email,
+    mobile,
     password,
   });
 
@@ -40,6 +75,7 @@ const registerUser = asyncHandler(async (req, res) => {
       name: user.name,
       username: user.username,
       email: user.email,
+      mobile: user.mobile,
       token: generateToken(user._id),
     });
   } else {
