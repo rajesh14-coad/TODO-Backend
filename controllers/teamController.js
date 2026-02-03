@@ -1,0 +1,339 @@
+const asyncHandler = require('express-async-handler');
+const Team = require('../models/Team');
+
+// Generate unique 6-character code
+const generateTeamCode = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+};
+
+// @desc    Create new team
+// @route   POST /api/teams
+// @access  Private
+const createTeam = asyncHandler(async (req, res) => {
+  const { groupName, hostId } = req.body;
+
+  if (!groupName || !hostId) {
+    res.status(400);
+    throw new Error('Group name and host ID are required');
+  }
+
+  // Check if admin already has a team with this name
+  const existingTeam = await Team.findOne({
+    groupName: groupName.trim(),
+    hostId: hostId
+  });
+
+  if (existingTeam) {
+    res.status(400);
+    throw new Error('You already have a team with this name');
+  }
+
+  // Generate unique code
+  let code = generateTeamCode();
+  let codeExists = await Team.findOne({ code });
+
+  while (codeExists) {
+    code = generateTeamCode();
+    codeExists = await Team.findOne({ code });
+  }
+
+  const team = await Team.create({
+    groupName: groupName.trim(),
+    code,
+    hostId,
+    members: [hostId],
+    sharedTasks: [],
+  });
+
+  if (team) {
+    res.status(201).json({
+      _id: team._id,
+      groupName: team.groupName,
+      code: team.code,
+      hostId: team.hostId,
+      members: team.members,
+      sharedTasks: team.sharedTasks,
+      realTimeMemberCount: team.realTimeMemberCount,
+      realTimeTaskCount: team.realTimeTaskCount,
+    });
+  } else {
+    res.status(400);
+    throw new Error('Invalid team data');
+  }
+});
+
+// @desc    Get user's teams with real-time stats
+// @route   GET /api/teams/user/:userId
+// @access  Private
+const getUserTeams = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  const teams = await Team.find({ members: userId });
+
+  // Return teams with real-time counts
+  const teamsWithStats = teams.map(team => ({
+    _id: team._id,
+    groupName: team.groupName,
+    code: team.code,
+    hostId: team.hostId,
+    members: team.members,
+    sharedTasks: team.sharedTasks,
+    realTimeMemberCount: team.realTimeMemberCount,
+    realTimeTaskCount: team.realTimeTaskCount,
+    createdAt: team.createdAt,
+    updatedAt: team.updatedAt,
+  }));
+
+  res.json(teamsWithStats);
+});
+
+// @desc    Get team by ID
+// @route   GET /api/teams/:teamId
+// @access  Private
+const getTeamById = asyncHandler(async (req, res) => {
+  const team = await Team.findById(req.params.teamId);
+
+  if (team) {
+    res.json({
+      _id: team._id,
+      groupName: team.groupName,
+      code: team.code,
+      hostId: team.hostId,
+      members: team.members,
+      sharedTasks: team.sharedTasks,
+      realTimeMemberCount: team.realTimeMemberCount,
+      realTimeTaskCount: team.realTimeTaskCount,
+      createdAt: team.createdAt,
+      updatedAt: team.updatedAt,
+    });
+  } else {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+});
+
+// @desc    Join team with code
+// @route   POST /api/teams/join
+// @access  Private
+const joinTeam = asyncHandler(async (req, res) => {
+  const { code, userId } = req.body;
+
+  if (!code || !userId) {
+    res.status(400);
+    throw new Error('Code and user ID are required');
+  }
+
+  const team = await Team.findOne({ code: code.toUpperCase() });
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  // Check if already a member
+  if (team.members.includes(userId)) {
+    res.status(400);
+    throw new Error('Already a member of this team');
+  }
+
+  team.members.push(userId);
+  await team.save();
+
+  res.json({
+    _id: team._id,
+    groupName: team.groupName,
+    code: team.code,
+    hostId: team.hostId,
+    members: team.members,
+    sharedTasks: team.sharedTasks,
+    realTimeMemberCount: team.realTimeMemberCount,
+    realTimeTaskCount: team.realTimeTaskCount,
+  });
+});
+
+// @desc    Delete team (Admin only)
+// @route   DELETE /api/teams/:teamId
+// @access  Private
+const deleteTeam = asyncHandler(async (req, res) => {
+  const { teamId } = req.params;
+  const { userId } = req.body;
+
+  if (!userId) {
+    res.status(400);
+    throw new Error('User ID is required');
+  }
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  // Check if user is admin
+  if (team.hostId !== userId) {
+    res.status(403);
+    throw new Error('Only admin can delete the team');
+  }
+
+  // Delete the team using deleteOne for better reliability
+  const deleteResult = await Team.deleteOne({ _id: teamId });
+
+  if (deleteResult.deletedCount === 0) {
+    res.status(500);
+    throw new Error('Failed to delete team');
+  }
+
+  res.json({
+    success: true,
+    message: 'Team and all tasks deleted successfully'
+  });
+});
+
+// @desc    Remove member from team (Admin only)
+// @route   POST /api/teams/:teamId/remove/:memberId
+// @access  Private
+const removeMember = asyncHandler(async (req, res) => {
+  const { teamId, memberId } = req.params;
+  const { userId } = req.body;
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  // Check if user is admin
+  if (team.hostId !== userId) {
+    res.status(403);
+    throw new Error('Only admin can remove members');
+  }
+
+  // Cannot remove admin
+  if (memberId === team.hostId) {
+    res.status(400);
+    throw new Error('Cannot remove team admin');
+  }
+
+  // Check if member exists
+  if (!team.members.includes(memberId)) {
+    res.status(404);
+    throw new Error('Member not found in team');
+  }
+
+  // Remove member
+  team.members = team.members.filter(id => id !== memberId);
+  await team.save();
+
+  res.json({
+    _id: team._id,
+    groupName: team.groupName,
+    members: team.members,
+    realTimeMemberCount: team.realTimeMemberCount,
+    message: 'Member removed successfully',
+  });
+});
+
+// @desc    Add shared task
+// @route   POST /api/teams/:teamId/tasks
+// @access  Private
+const addSharedTask = asyncHandler(async (req, res) => {
+  const { teamId } = req.params;
+  const taskData = req.body;
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  team.sharedTasks.push(taskData);
+  await team.save();
+
+  res.status(201).json({
+    _id: team._id,
+    sharedTasks: team.sharedTasks,
+    realTimeTaskCount: team.realTimeTaskCount,
+  });
+});
+
+// @desc    Update shared task
+// @route   PUT /api/teams/:teamId/tasks/:taskId
+// @access  Private
+const updateSharedTask = asyncHandler(async (req, res) => {
+  const { teamId, taskId } = req.params;
+  const taskData = req.body;
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  const task = team.sharedTasks.id(taskId);
+
+  if (!task) {
+    res.status(404);
+    throw new Error('Task not found');
+  }
+
+  // Update task fields
+  Object.keys(taskData).forEach(key => {
+    task[key] = taskData[key];
+  });
+
+  await team.save();
+
+  res.json({
+    _id: team._id,
+    sharedTasks: team.sharedTasks,
+    realTimeTaskCount: team.realTimeTaskCount,
+  });
+});
+
+// @desc    Delete shared task
+// @route   DELETE /api/teams/:teamId/tasks/:taskId
+// @access  Private
+const deleteSharedTask = asyncHandler(async (req, res) => {
+  const { teamId, taskId } = req.params;
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  team.sharedTasks = team.sharedTasks.filter(
+    task => task._id.toString() !== taskId
+  );
+
+  await team.save();
+
+  res.json({
+    _id: team._id,
+    sharedTasks: team.sharedTasks,
+    realTimeTaskCount: team.realTimeTaskCount,
+    message: 'Task deleted successfully',
+  });
+});
+
+module.exports = {
+  createTeam,
+  getUserTeams,
+  getTeamById,
+  joinTeam,
+  deleteTeam,
+  removeMember,
+  addSharedTask,
+  updateSharedTask,
+  deleteSharedTask,
+};

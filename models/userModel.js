@@ -7,6 +7,13 @@ const userSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+    username: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
     email: {
       type: String,
       required: true,
@@ -24,6 +31,10 @@ const userSchema = mongoose.Schema(
     isGuest: {
       type: Boolean,
       default: false,
+    },
+    lastUsernameChange: {
+      type: Date,
+      default: null,
     },
   },
   {

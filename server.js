@@ -5,6 +5,7 @@ const connectDB = require('./config/db');
 const taskRoutes = require('./routes/taskRoutes');
 const userRoutes = require('./routes/userRoutes');
 const goalRoutes = require('./routes/goalRoutes');
+const teamRoutes = require('./routes/teamRoutes');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 
 // Database se connect karne ka function call
@@ -38,11 +39,13 @@ app.use(express.json());
 app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/goals', goalRoutes);
+app.use('/api/teams', teamRoutes);
 
 // Fallback/Alias Routes (Handles requests without /api prefix)
 app.use('/tasks', taskRoutes);
 app.use('/users', userRoutes);
 app.use('/goals', goalRoutes);
+app.use('/teams', teamRoutes);
 
 // Root Route (Testing ke liye)
 app.get('/', (req, res) => {
