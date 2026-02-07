@@ -1,5 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const User = require('../models/userModel');
+const PersonalMessage = require('../models/PersonalMessage');
+const ChatSettings = require('../models/ChatSettings');
 
 // @desc    Search users by username
 // @route   GET /api/chat/search
@@ -163,6 +165,117 @@ const getRecentChats = asyncHandler(async (req, res) => {
   res.json(user.friends || []);
 });
 
+// ========== NEW: MESSAGE PERSISTENCE & AUTO-DELETE ==========
+
+// @desc    Get personal message history
+// @route   GET /api/chat/messages/:roomId
+// @access  Private
+const getPersonalMessages = asyncHandler(async (req, res) => {
+  const { roomId } = req.params;
+  const userId = req.user._id;
+
+  // Verify user is part of this room
+  const [user1Id, user2Id] = roomId.split('_').sort();
+  if (userId.toString() !== user1Id && userId.toString() !== user2Id) {
+    res.status(403);
+    throw new Error('Unauthorized access to this chat');
+  }
+
+  // Fetch last 50 messages
+  const messages = await PersonalMessage.find({ roomId })
+    .sort({ timestamp: -1 })
+    .limit(50)
+    .populate('sender', 'username profilePicture')
+    .populate('receiver', 'username profilePicture');
+
+  // Reverse to show oldest first
+  res.json(messages.reverse());
+});
+
+// @desc    Mark message as read (triggers auto-delete if mode is 'after_view')
+// @route   POST /api/chat/messages/read
+// @access  Private
+const markMessageAsRead = asyncHandler(async (req, res) => {
+  const { messageId } = req.body;
+  const userId = req.user._id;
+
+  const message = await PersonalMessage.findById(messageId);
+
+  if (!message) {
+    res.status(404);
+    throw new Error('Message not found');
+  }
+
+  // Only receiver can mark as read
+  if (message.receiver.toString() !== userId.toString()) {
+    res.status(403);
+    throw new Error('Unauthorized');
+  }
+
+  message.read = true;
+  message.readAt = new Date();
+
+  // Auto-delete if mode is 'after_view'
+  if (message.deleteMode === 'after_view') {
+    await PersonalMessage.findByIdAndDelete(messageId);
+    res.json({ message: 'Message read and deleted', deleted: true });
+  } else {
+    await message.save();
+    res.json({ message: 'Message marked as read', deleted: false });
+  }
+});
+
+// @desc    Update chat settings (default or per-chat)
+// @route   POST /api/chat/settings
+// @access  Private
+const updateChatSettings = asyncHandler(async (req, res) => {
+  const { defaultDeleteMode, roomId, deleteMode } = req.body;
+  const userId = req.user._id;
+
+  let settings = await ChatSettings.findOne({ userId });
+
+  if (!settings) {
+    settings = new ChatSettings({ userId });
+  }
+
+  // Update default mode
+  if (defaultDeleteMode) {
+    settings.defaultDeleteMode = defaultDeleteMode;
+  }
+
+  // Update per-chat mode
+  if (roomId && deleteMode) {
+    const existingIndex = settings.chatSpecificSettings.findIndex(
+      (s) => s.roomId === roomId
+    );
+
+    if (existingIndex !== -1) {
+      settings.chatSpecificSettings[existingIndex].deleteMode = deleteMode;
+    } else {
+      settings.chatSpecificSettings.push({ roomId, deleteMode });
+    }
+  }
+
+  await settings.save();
+  res.json(settings);
+});
+
+// @desc    Get chat settings
+// @route   GET /api/chat/settings
+// @access  Private
+const getChatSettings = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  let settings = await ChatSettings.findOne({ userId });
+
+  if (!settings) {
+    settings = new ChatSettings({ userId });
+    await settings.save();
+  }
+
+  res.json(settings);
+});
+
 const blockUser = asyncHandler(async (req, res) => res.json({}));
 const unblockUser = asyncHandler(async (req, res) => res.json({}));
 const getBlockedUsers = asyncHandler(async (req, res) => res.json([]));
@@ -176,5 +289,10 @@ module.exports = {
   blockUser,
   unblockUser,
   getBlockedUsers,
-  cancelChatRequest
+  cancelChatRequest,
+  // New exports
+  getPersonalMessages,
+  markMessageAsRead,
+  updateChatSettings,
+  getChatSettings,
 };

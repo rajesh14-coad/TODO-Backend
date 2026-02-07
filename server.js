@@ -191,6 +191,7 @@ io.on('connection', (socket) => {
     const { roomId, receiver, text, clientUUID } = data;
     const sender = socket.user.id;
     const ChatConnection = require('./models/ChatConnection');
+    const ChatSettings = require('./models/ChatSettings');
 
     try {
       // Chat Lock Logic: Verify connection is accepted
@@ -200,12 +201,34 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Fetch sender's chat settings to determine deleteMode
+      let deleteMode = 'never'; // Default
+      const settings = await ChatSettings.findOne({ userId: sender });
+
+      if (settings) {
+        // Check for per-chat setting first
+        const chatSetting = settings.chatSpecificSettings.find(s => s.roomId === roomId);
+        if (chatSetting) {
+          deleteMode = chatSetting.deleteMode;
+        } else {
+          deleteMode = settings.defaultDeleteMode;
+        }
+      }
+
+      // Calculate expiresAt for 24h mode
+      let expiresAt = null;
+      if (deleteMode === 'after_24h') {
+        expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+      }
+
       const newMessage = await PersonalMessage.create({
         roomId,
         sender,
         receiver,
         text,
-        read: false
+        read: false,
+        deleteMode,
+        expiresAt
       });
       // Populate sender details for frontend display
       const fullMessage = await newMessage.populate('sender', 'username profilePicture');

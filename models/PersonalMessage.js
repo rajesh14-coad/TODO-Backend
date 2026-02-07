@@ -36,15 +36,30 @@ const personalMessageSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    readAt: {
+      type: Date, // When the message was read
+    },
     timestamp: {
       type: Date,
       default: Date.now,
+    },
+    // Auto-Delete Privacy Settings
+    deleteMode: {
+      type: String,
+      enum: ['never', 'after_view', 'after_24h'],
+      default: 'never',
+    },
+    expiresAt: {
+      type: Date, // For TTL-based deletion (24h mode)
     },
   },
   {
     timestamps: true,
   }
 );
+
+// TTL Index for 24-hour auto-delete
+personalMessageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 const PersonalMessage = mongoose.model('PersonalMessage', personalMessageSchema);
 

@@ -9,6 +9,10 @@ const {
   unblockUser,
   getBlockedUsers,
   getRecentChats,
+  getPersonalMessages,
+  markMessageAsRead,
+  updateChatSettings,
+  getChatSettings,
 } = require('../controllers/chatController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -38,5 +42,17 @@ router.get('/blocked', protect, getBlockedUsers);
 
 // Get recent chats
 router.get('/recent', protect, getRecentChats);
+
+// ========== NEW: MESSAGE PERSISTENCE & AUTO-DELETE ==========
+
+// Get message history for a room
+router.get('/messages/:roomId', protect, getPersonalMessages);
+
+// Mark message as read (triggers auto-delete if needed)
+router.post('/messages/read', protect, markMessageAsRead);
+
+// Get/Update chat settings
+router.get('/settings', protect, getChatSettings);
+router.post('/settings', protect, updateChatSettings);
 
 module.exports = router;

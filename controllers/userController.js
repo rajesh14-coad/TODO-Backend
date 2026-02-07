@@ -443,12 +443,20 @@ const getRecentChats = asyncHandler(async (req, res) => {
 const getPendingRequests = asyncHandler(async (req, res) => {
   const ChatConnection = require('../models/ChatConnection');
 
-  const requests = await ChatConnection.find({
+  const received = await ChatConnection.find({
     receiverId: req.user._id,
     status: 'pending'
   }).populate('requesterId', 'name username profilePicture');
 
-  res.json(requests);
+  const sent = await ChatConnection.find({
+    requesterId: req.user._id,
+    status: 'pending'
+  }).populate('receiverId', 'name username profilePicture');
+
+  res.json({
+    received,
+    sent
+  });
 });
 
 // @desc    Send chat request
