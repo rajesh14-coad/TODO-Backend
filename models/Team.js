@@ -49,7 +49,8 @@ const teamSchema = mongoose.Schema(
       required: true,
     },
     members: [{
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
     }],
     sharedTasks: [sharedTaskSchema],
   },

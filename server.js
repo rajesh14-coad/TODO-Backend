@@ -12,6 +12,7 @@ const taskRoutes = require('./routes/taskRoutes');
 const userRoutes = require('./routes/userRoutes');
 const goalRoutes = require('./routes/goalRoutes');
 const teamRoutes = require('./routes/teamRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 
 // Database se connect karne ka function call
@@ -46,12 +47,14 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/goals', goalRoutes);
 app.use('/api/teams', teamRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Fallback/Alias Routes (Handles requests without /api prefix)
 app.use('/tasks', taskRoutes);
 app.use('/users', userRoutes);
 app.use('/goals', goalRoutes);
 app.use('/teams', teamRoutes);
+app.use('/chat', chatRoutes);
 
 // Root Route (Testing ke liye)
 app.get('/', (req, res) => {
@@ -74,6 +77,9 @@ const io = new Server(httpServer, {
     credentials: true
   }
 });
+
+// Attach io to app so it can be used in controllers
+app.set('io', io);
 
 // Map to store userId -> socketId relation for presence
 const onlineUsers = new Map();
@@ -101,6 +107,12 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
 
+  // Join user to their own room for targeted events
+  if (socket.user) {
+    socket.join(socket.user._id.toString());
+    console.log(`User ${socket.user.username} joined room ${socket.user._id}`);
+  }
+
   // User Presence: Join Logic
   socket.on('user_connected', async (userId) => {
     if (!userId) return;
@@ -124,6 +136,23 @@ io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     const { teamId, sender, text, clientUUID } = data;
     try {
+      // SECURITY: Verify sender is a team member
+      const team = await require('./models/Team').findById(teamId);
+      if (!team) {
+        socket.emit('error', { message: 'Team not found' });
+        return;
+      }
+
+      // Check if sender is a member
+      const isMember = team.members.some(memberId =>
+        memberId.toString() === sender.toString()
+      );
+
+      if (!isMember) {
+        socket.emit('error', { message: 'You are not a member of this team' });
+        return;
+      }
+
       const newMessage = await Message.create({ teamId, sender, text });
       // Fetch sender details (username & profilePicture)
       const fullMessage = await newMessage.populate('sender', 'username profilePicture');
@@ -134,6 +163,7 @@ io.on('connection', (socket) => {
       io.to(teamId).emit('receive_message', response);
     } catch (error) {
       console.error('Error sending message:', error);
+      socket.emit('error', { message: 'Failed to send message' });
     }
   });
 

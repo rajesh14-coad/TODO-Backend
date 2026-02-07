@@ -61,6 +61,23 @@ const userSchema = mongoose.Schema(
       type: Date,
       default: null,
     },
+    // 🔗 Social Networking Fields
+    friends: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    }],
+    pendingSentRequests: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    }],
+    pendingReceivedRequests: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    }],
+    blockedUsers: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    }],
   },
   {
     timestamps: true,

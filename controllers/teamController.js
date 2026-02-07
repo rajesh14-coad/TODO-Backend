@@ -33,7 +33,7 @@ const createTeam = asyncHandler(async (req, res) => {
 
   if (existingTeam) {
     res.status(400);
-    throw new Error('Team with this name already exists');
+    throw new Error('You already have a team with this name. Please try a different name.');
   }
 
   // Generate unique code
@@ -109,7 +109,11 @@ const getTeamById = asyncHandler(async (req, res) => {
 
   if (team) {
     // STRICT PRIVACY: Only members can view team details
-    if (!team.members.map(m => m._id.toString()).includes(req.user._id.toString())) {
+    const isMember = team.members.some(member =>
+      member._id.toString() === req.user._id.toString()
+    );
+
+    if (!isMember) {
       res.status(403);
       throw new Error('Not authorized to view this team');
     }
@@ -136,22 +140,28 @@ const getTeamById = asyncHandler(async (req, res) => {
 // @route   POST /api/teams/join
 // @access  Private
 const joinTeam = asyncHandler(async (req, res) => {
-  const { code, userId } = req.body;
+  const { code } = req.body;
+  const userId = req.user._id; // Get from authenticated user
 
-  if (!code || !userId) {
+  if (!code) {
     res.status(400);
-    throw new Error('Code and user ID are required');
+    throw new Error('Code is required');
   }
 
-  const team = await Team.findOne({ code: code.toUpperCase() });
+  const team = await Team.findOne({ code: code.toUpperCase() })
+    .populate('members', 'username name profilePicture');
 
   if (!team) {
     res.status(404);
     throw new Error('Team not found');
   }
 
-  // Check if already a member
-  if (team.members.includes(userId)) {
+  // Check if already a member - use ObjectId comparison
+  const isMember = team.members.some(member =>
+    member._id.toString() === userId.toString()
+  );
+
+  if (isMember) {
     res.status(400);
     throw new Error('Already a member of this team');
   }
@@ -159,15 +169,19 @@ const joinTeam = asyncHandler(async (req, res) => {
   team.members.push(userId);
   await team.save();
 
+  // Populate the newly added member
+  const updatedTeam = await Team.findById(team._id)
+    .populate('members', 'username name profilePicture');
+
   res.json({
-    _id: team._id,
-    groupName: team.groupName,
-    code: team.code,
-    hostId: team.hostId,
-    members: team.members,
-    sharedTasks: team.sharedTasks,
-    realTimeMemberCount: team.realTimeMemberCount,
-    realTimeTaskCount: team.realTimeTaskCount,
+    _id: updatedTeam._id,
+    groupName: updatedTeam.groupName,
+    code: updatedTeam.code,
+    hostId: updatedTeam.hostId,
+    members: updatedTeam.members,
+    sharedTasks: updatedTeam.sharedTasks,
+    realTimeMemberCount: updatedTeam.realTimeMemberCount,
+    realTimeTaskCount: updatedTeam.realTimeTaskCount,
   });
 });
 
@@ -176,12 +190,7 @@ const joinTeam = asyncHandler(async (req, res) => {
 // @access  Private
 const deleteTeam = asyncHandler(async (req, res) => {
   const { teamId } = req.params;
-  const { userId } = req.body;
-
-  if (!userId) {
-    res.status(400);
-    throw new Error('User ID is required');
-  }
+  const userId = req.user._id; // Get from authenticated user
 
   const team = await Team.findById(teamId);
 
@@ -190,19 +199,13 @@ const deleteTeam = asyncHandler(async (req, res) => {
     throw new Error('Team not found');
   }
 
-  // Check if user is admin
-  if (team.hostId !== userId) {
+  // ADMIN ONLY: Check if user is the team creator (admin)
+  if (team.hostId.toString() !== userId.toString()) {
     res.status(403);
-    throw new Error('Only admin can delete the team');
+    throw new Error('Only the team admin can delete the team');
   }
 
-  // Delete the team using deleteOne for better reliability
-  const deleteResult = await Team.deleteOne({ _id: teamId });
-
-  if (deleteResult.deletedCount === 0) {
-    res.status(500);
-    throw new Error('Failed to delete team');
-  }
+  await Team.findByIdAndDelete(teamId);
 
   res.json({
     success: true,
@@ -215,7 +218,7 @@ const deleteTeam = asyncHandler(async (req, res) => {
 // @access  Private
 const removeMember = asyncHandler(async (req, res) => {
   const { teamId, memberId } = req.params;
-  const { userId } = req.body;
+  const userId = req.user._id.toString(); // Get from authenticated user
 
   const team = await Team.findById(teamId);
 
@@ -225,25 +228,26 @@ const removeMember = asyncHandler(async (req, res) => {
   }
 
   // Check if user is admin
-  if (team.hostId !== userId) {
+  if (team.hostId.toString() !== userId) {
     res.status(403);
     throw new Error('Only admin can remove members');
   }
 
   // Cannot remove admin
-  if (memberId === team.hostId) {
+  if (memberId === team.hostId.toString()) {
     res.status(400);
     throw new Error('Cannot remove team admin');
   }
 
   // Check if member exists
-  if (!team.members.includes(memberId)) {
+  const memberExists = team.members.some(m => m.toString() === memberId);
+  if (!memberExists) {
     res.status(404);
     throw new Error('Member not found in team');
   }
 
   // Remove member
-  team.members = team.members.filter(id => id !== memberId);
+  team.members = team.members.filter(id => id.toString() !== memberId);
   await team.save();
 
   res.json({
@@ -363,7 +367,7 @@ const transferOwnership = asyncHandler(async (req, res) => {
   }
 
   // Check if new admin is a member
-  if (!team.members.includes(newAdminId)) {
+  if (!team.members.some(member => member.toString() === newAdminId)) {
     res.status(400);
     throw new Error('New admin must be a member of the team');
   }
@@ -452,8 +456,12 @@ const getTeamMessages = asyncHandler(async (req, res) => {
     throw new Error('Team not found');
   }
 
-  // Check if member
-  if (!team.members.includes(req.user._id)) {
+  // Check if member - use ObjectId comparison
+  const isMember = team.members.some(memberId =>
+    memberId.toString() === req.user._id.toString()
+  );
+
+  if (!isMember) {
     res.status(403);
     throw new Error('Not authorized to view messages');
   }
@@ -519,6 +527,99 @@ const convertMessageToTask = asyncHandler(async (req, res) => {
 });
 
 
+// @desc    Rename team
+// @route   PUT /api/teams/:teamId
+// @access  Private
+const renameTeam = asyncHandler(async (req, res) => {
+  const { teamId } = req.params;
+  const { groupName } = req.body;
+  const userId = req.user._id;
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  // Check if admin
+  if (team.hostId.toString() !== userId.toString()) {
+    res.status(403);
+    throw new Error('Only the team admin can rename the team');
+  }
+
+  if (groupName) {
+    // Check for duplicates
+    const existingTeam = await Team.findOne({
+      groupName: { $regex: new RegExp(`^${groupName.trim()}$`, 'i') },
+      hostId: userId,
+      _id: { $ne: teamId }
+    });
+
+    if (existingTeam) {
+      res.status(400);
+      throw new Error('You already have a team with this name. Please try a different name.');
+    }
+    team.groupName = groupName.trim();
+  }
+
+  const updatedTeam = await team.save();
+  res.json({
+    _id: updatedTeam._id,
+    groupName: updatedTeam.groupName,
+    code: updatedTeam.code,
+    hostId: updatedTeam.hostId,
+    members: updatedTeam.members
+  });
+});
+
+// @desc    Add member to team (Admin only)
+// @route   POST /api/teams/:teamId/add-member
+// @access  Private
+const addMember = asyncHandler(async (req, res) => {
+  const { teamId } = req.params;
+  const { username } = req.body;
+  const userId = req.user._id.toString();
+
+  const team = await Team.findById(teamId);
+
+  if (!team) {
+    res.status(404);
+    throw new Error('Team not found');
+  }
+
+  // Check if admin
+  if (team.hostId.toString() !== userId) {
+    res.status(403);
+    throw new Error('Only team admin can add members');
+  }
+
+  const userToAdd = await User.findOne({ username });
+  if (!userToAdd) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  // Check if already member
+  if (team.members.some(member => member.toString() === userToAdd._id.toString())) {
+    res.status(400);
+    throw new Error('User is already a member');
+  }
+
+  team.members.push(userToAdd._id);
+  await team.save();
+
+  const updatedTeam = await Team.findById(teamId)
+    .populate('members', 'username name profilePicture');
+
+  res.json({
+    _id: updatedTeam._id,
+    members: updatedTeam.members,
+    realTimeMemberCount: updatedTeam.realTimeMemberCount,
+    message: 'Member added successfully'
+  });
+});
+
 module.exports = {
   createTeam,
   getUserTeams,
@@ -531,7 +632,8 @@ module.exports = {
   deleteSharedTask,
   transferOwnership,
   createTestTeam,
-  createTestTeam,
   getTeamMessages,
-  convertMessageToTask
+  convertMessageToTask,
+  renameTeam,
+  addMember
 };

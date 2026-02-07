@@ -19,8 +19,18 @@ const personalMessageSchema = mongoose.Schema(
     },
     text: {
       type: String,
-      required: true,
       trim: true,
+    },
+    messageType: {
+      type: String,
+      enum: ['text', 'voice', 'image', 'video'],
+      default: 'text',
+    },
+    mediaUrl: {
+      type: String, // URL for voice/image/video files
+    },
+    mediaDuration: {
+      type: Number, // Duration in seconds for voice/video
     },
     read: {
       type: Boolean,
